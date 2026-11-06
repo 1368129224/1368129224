@@ -25,9 +25,10 @@ jobs:
           token: ${{ secrets.METRICS_TOKEN }}
 
           # Options
-          user: 1368129224
+          user: "1368129224"
           template: classic
           base: header, activity, community, repositories, metadata
           config_timezone: Asia/Shanghai
           plugin_calendar: yes
           plugin_calendar_limit: 1
+          filename: github-metrics.svg
