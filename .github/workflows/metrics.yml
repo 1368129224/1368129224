@@ -2,22 +2,31 @@
 name: Metrics
 on:
   # Schedule updates (daily)
-  schedule: [{cron: "0 3 * * *"}]
+  schedule:
+    - cron: "0 3 * * *"
   # Lines below let you run workflow manually and on each commit
   workflow_dispatch:
-  push: {branches: ["main"]}
+  push:
+    branches: [main]
+
+# Never let two runs fight over the same commit on main
+concurrency:
+  group: metrics
+  cancel-in-progress: false
+
 jobs:
   github-metrics:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      # Pinned instead of @latest: "@latest" currently resolves to the v3.34-beta prerelease.
-      # commit:false -> the commit is made below, after the SVG has been padded once.
+      # Pinned instead of @latest: @latest currently resolves to the v3.34-beta prerelease.
+      # output_action: none -> metrics only renders /metrics_renders/github-metrics.svg and
+      # leaves the commit to the last step, so the svg can be padded before it is published.
       - uses: lowlighter/metrics@v3.34
         with:
           token: ${{ secrets.METRICS_TOKEN }}
-          commit: false
+          output_action: none
 
           # Options
           user: "1368129224"
@@ -39,37 +48,35 @@ jobs:
           plugin_languages_sections: most-used
           plugin_languages_threshold: 0%
 
-      # metrics bakes the canvas height (693) using its own font metrics. Browsers whose
-      # minimum font size is above metrics' 10px footer lay that footer out taller, so
-      # "Last updated ..." ends up past the canvas bottom and is cut in half.
-      # Pad the canvas below the content: the SVG has no background, so the extra area is
-      # transparent and costs nothing visually, while the footer always stays visible.
-      - name: Pad github-metrics.svg and commit
-        run: |
-          python3 - <<'PY'
-          import pathlib, re
+      - uses: actions/checkout@v4
 
-          path = pathlib.Path("github-metrics.svg")
-          if not path.exists():
-              raise SystemExit("github-metrics.svg was not generated")
-          svg = path.read_text(encoding="utf-8")
-          match = re.search(r'<svg\b[^>]*?\bheight="(\d+)"', svg)
-          if not match:
-              raise SystemExit("cannot locate the svg height attribute")
-          height = int(match.group(1))
-          if height < 760:
-              svg = svg[:match.start(1)] + str(height + 80) + svg[match.end(1):]
-              path.write_text(svg, encoding="utf-8")
-              print(f"height {height} -> {height + 80}")
-          else:
-              print(f"height {height} already padded")
-          PY
+      # metrics sizes the canvas with its own font metrics (height="693"). Browsers whose
+      # minimum font size is larger than the 10px footer lay that footer out taller, so
+      # "Last updated ..." lands past the canvas bottom and gets cut in half.
+      # Give the canvas 80px of extra room: the svg has no background, so the added area
+      # is transparent and costs nothing visually.
+      - name: Commit padded svg
+        run: |
+          set -euo pipefail
+          cp /metrics_renders/github-metrics.svg github-metrics.svg
+
+          height=$(head -n 1 github-metrics.svg | grep -o 'height="[0-9]*"' | head -n 1 | tr -dc '0-9' || true)
+          if [ -z "$height" ]; then
+            echo "::error::could not read the svg height"
+            exit 1
+          fi
+          if [ "$height" -lt 760 ]; then
+            sed -i "1s/height=\"$height\"/height=\"$((height + 80))\"/" github-metrics.svg
+            echo "height: $height -> $((height + 80))"
+          else
+            echo "height: $height (already padded)"
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add github-metrics.svg
           if git diff --cached --quiet; then
-            echo "github-metrics.svg unchanged, nothing to commit"
+            echo "github-metrics.svg is unchanged"
             exit 0
           fi
           git commit -m "Update github-metrics.svg [skip ci]"
