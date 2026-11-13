@@ -37,6 +37,3 @@ jobs:
           plugin_languages_limit: 8
           plugin_languages_sections: most-used
           plugin_languages_threshold: 0%
-
-          # Lines of code
-          plugin_lines: yes
